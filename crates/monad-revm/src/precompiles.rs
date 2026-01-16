@@ -93,12 +93,7 @@ fn monad_ec_mul_run(input: &[u8], gas_limit: u64) -> PrecompileResult {
 
 /// Monad ecPairing precompile run function
 fn monad_ec_pairing_run(input: &[u8], gas_limit: u64) -> PrecompileResult {
-    bn254::run_pair(
-        input,
-        MONAD_EC_PAIRING_PER_POINT_GAS,
-        MONAD_EC_PAIRING_BASE_GAS,
-        gas_limit,
-    )
+    bn254::run_pair(input, MONAD_EC_PAIRING_PER_POINT_GAS, MONAD_EC_PAIRING_BASE_GAS, gas_limit)
 }
 
 /// Monad blake2f precompile run function
@@ -127,21 +122,15 @@ fn monad_blake2f_run(input: &[u8], gas_limit: u64) -> PrecompileResult {
 
     // Parse state vector h (8 × u64)
     let mut h = [0u64; 8];
-    input[4..68]
-        .chunks_exact(8)
-        .enumerate()
-        .for_each(|(i, chunk)| {
-            h[i] = u64::from_le_bytes(chunk.try_into().unwrap());
-        });
+    input[4..68].chunks_exact(8).enumerate().for_each(|(i, chunk)| {
+        h[i] = u64::from_le_bytes(chunk.try_into().unwrap());
+    });
 
     // Parse message block m (16 × u64)
     let mut m = [0u64; 16];
-    input[68..196]
-        .chunks_exact(8)
-        .enumerate()
-        .for_each(|(i, chunk)| {
-            m[i] = u64::from_le_bytes(chunk.try_into().unwrap());
-        });
+    input[68..196].chunks_exact(8).enumerate().for_each(|(i, chunk)| {
+        m[i] = u64::from_le_bytes(chunk.try_into().unwrap());
+    });
 
     // Parse offset counters
     let t_0 = u64::from_le_bytes(input[196..204].try_into().unwrap());
@@ -185,10 +174,7 @@ fn monad_point_evaluation_run(input: &[u8], gas_limit: u64) -> PrecompileResult 
     crypto().verify_kzg_proof(z, y, commitment, proof)?;
 
     // Return FIELD_ELEMENTS_PER_BLOB and BLS_MODULUS as padded 32 byte big endian values
-    Ok(PrecompileOutput::new(
-        MONAD_POINT_EVALUATION_GAS,
-        kzg_point_evaluation::RETURN_VALUE.into(),
-    ))
+    Ok(PrecompileOutput::new(MONAD_POINT_EVALUATION_GAS, kzg_point_evaluation::RETURN_VALUE.into()))
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -196,25 +182,16 @@ fn monad_point_evaluation_run(input: &[u8], gas_limit: u64) -> PrecompileResult 
 // ═══════════════════════════════════════════════════════════════════════════════
 
 /// Monad ecRecover precompile (address 0x01, 6000 gas)
-pub const MONAD_ECRECOVER: Precompile = Precompile::new(
-    PrecompileId::EcRec,
-    revm::precompile::u64_to_address(1),
-    monad_ecrecover_run,
-);
+pub const MONAD_ECRECOVER: Precompile =
+    Precompile::new(PrecompileId::EcRec, revm::precompile::u64_to_address(1), monad_ecrecover_run);
 
 /// Monad ecAdd precompile (address 0x06, 300 gas)
-pub const MONAD_EC_ADD: Precompile = Precompile::new(
-    PrecompileId::Bn254Add,
-    revm::precompile::u64_to_address(6),
-    monad_ec_add_run,
-);
+pub const MONAD_EC_ADD: Precompile =
+    Precompile::new(PrecompileId::Bn254Add, revm::precompile::u64_to_address(6), monad_ec_add_run);
 
 /// Monad ecMul precompile (address 0x07, 30000 gas)
-pub const MONAD_EC_MUL: Precompile = Precompile::new(
-    PrecompileId::Bn254Mul,
-    revm::precompile::u64_to_address(7),
-    monad_ec_mul_run,
-);
+pub const MONAD_EC_MUL: Precompile =
+    Precompile::new(PrecompileId::Bn254Mul, revm::precompile::u64_to_address(7), monad_ec_mul_run);
 
 /// Monad ecPairing precompile (address 0x08, 225000 base + 170000 per point)
 pub const MONAD_EC_PAIRING: Precompile = Precompile::new(
@@ -224,11 +201,8 @@ pub const MONAD_EC_PAIRING: Precompile = Precompile::new(
 );
 
 /// Monad blake2f precompile (address 0x09, rounds × 2 gas)
-pub const MONAD_BLAKE2F: Precompile = Precompile::new(
-    PrecompileId::Blake2F,
-    revm::precompile::u64_to_address(9),
-    monad_blake2f_run,
-);
+pub const MONAD_BLAKE2F: Precompile =
+    Precompile::new(PrecompileId::Blake2F, revm::precompile::u64_to_address(9), monad_blake2f_run);
 
 /// Monad KZG point evaluation precompile (address 0x0a, 200000 gas)
 pub const MONAD_POINT_EVALUATION: Precompile = Precompile::new(
@@ -282,7 +256,7 @@ impl MonadPrecompiles {
 
     /// Precompiles getter.
     #[inline]
-    pub fn precompiles(&self) -> &'static Precompiles {
+    pub const fn precompiles(&self) -> &'static Precompiles {
         self.inner.precompiles
     }
 }
@@ -442,9 +416,7 @@ mod tests {
 
         // Get the ecAdd precompile (address 0x06)
         let ec_add_address = revm::precompile::u64_to_address(6);
-        let precompile = precompiles
-            .get(&ec_add_address)
-            .expect("ecAdd should exist");
+        let precompile = precompiles.get(&ec_add_address).expect("ecAdd should exist");
 
         // Valid ecAdd input: two points on BN254 curve
         // P = (1, 2) which is the generator point
@@ -457,15 +429,10 @@ mod tests {
         .unwrap();
 
         // Execute with high gas limit
-        let result = precompile
-            .execute(&input, 100_000)
-            .expect("ecAdd should succeed");
+        let result = precompile.execute(&input, 100_000).expect("ecAdd should succeed");
 
         // Verify Monad gas cost is used (300, not Ethereum's 150)
-        assert_eq!(
-            result.gas_used, MONAD_EC_ADD_GAS,
-            "ecAdd should use Monad gas cost of 300"
-        );
+        assert_eq!(result.gas_used, MONAD_EC_ADD_GAS, "ecAdd should use Monad gas cost of 300");
     }
 
     #[test]
@@ -477,9 +444,7 @@ mod tests {
 
         // Get the ecMul precompile (address 0x07)
         let ec_mul_address = revm::precompile::u64_to_address(7);
-        let precompile = precompiles
-            .get(&ec_mul_address)
-            .expect("ecMul should exist");
+        let precompile = precompiles.get(&ec_mul_address).expect("ecMul should exist");
 
         // Valid ecMul input: point (1, 2) and scalar 2
         let input = hex::decode(
@@ -490,15 +455,10 @@ mod tests {
         .unwrap();
 
         // Execute with high gas limit
-        let result = precompile
-            .execute(&input, 100_000)
-            .expect("ecMul should succeed");
+        let result = precompile.execute(&input, 100_000).expect("ecMul should succeed");
 
         // Verify Monad gas cost is used (30000, not Ethereum's 6000)
-        assert_eq!(
-            result.gas_used, MONAD_EC_MUL_GAS,
-            "ecMul should use Monad gas cost of 30000"
-        );
+        assert_eq!(result.gas_used, MONAD_EC_MUL_GAS, "ecMul should use Monad gas cost of 30000");
     }
 
     #[test]
@@ -510,9 +470,7 @@ mod tests {
 
         // Get the ecRecover precompile (address 0x01)
         let ecrecover_address = revm::precompile::u64_to_address(1);
-        let precompile = precompiles
-            .get(&ecrecover_address)
-            .expect("ecRecover should exist");
+        let precompile = precompiles.get(&ecrecover_address).expect("ecRecover should exist");
 
         // Valid ecrecover input: hash + v + r + s
         let input = hex::decode(
@@ -524,9 +482,7 @@ mod tests {
         .unwrap();
 
         // Execute with high gas limit
-        let result = precompile
-            .execute(&input, 100_000)
-            .expect("ecRecover should succeed");
+        let result = precompile.execute(&input, 100_000).expect("ecRecover should succeed");
 
         // Verify Monad gas cost is used (6000, not Ethereum's 3000)
         assert_eq!(
@@ -544,9 +500,7 @@ mod tests {
 
         // Get the ecPairing precompile (address 0x08)
         let ec_pairing_address = revm::precompile::u64_to_address(8);
-        let precompile = precompiles
-            .get(&ec_pairing_address)
-            .expect("ecPairing should exist");
+        let precompile = precompiles.get(&ec_pairing_address).expect("ecPairing should exist");
 
         // Single pairing with G1 point at infinity (0,0) + valid G2 point
         let input = hex::decode(
@@ -560,16 +514,11 @@ mod tests {
         .unwrap();
 
         // Execute with high gas limit (1 point = base + per_point = 225000 + 170000 = 395000)
-        let result = precompile
-            .execute(&input, 500_000)
-            .expect("ecPairing should succeed");
+        let result = precompile.execute(&input, 500_000).expect("ecPairing should succeed");
 
         // Verify Monad gas cost is used (225000 base + 170000 per point = 395000)
         let expected_gas = MONAD_EC_PAIRING_BASE_GAS + MONAD_EC_PAIRING_PER_POINT_GAS;
-        assert_eq!(
-            result.gas_used, expected_gas,
-            "ecPairing should use Monad gas cost of 395000"
-        );
+        assert_eq!(result.gas_used, expected_gas, "ecPairing should use Monad gas cost of 395000");
     }
 
     #[test]
@@ -581,9 +530,7 @@ mod tests {
 
         // Get the blake2f precompile (address 0x09)
         let blake2f_address = revm::precompile::u64_to_address(9);
-        let precompile = precompiles
-            .get(&blake2f_address)
-            .expect("blake2f should exist");
+        let precompile = precompiles.get(&blake2f_address).expect("blake2f should exist");
 
         // blake2f input: 4 bytes rounds + 64 bytes h + 128 bytes m + 8 bytes t[0] + 8 bytes t[1] + 1 byte f
         // 12 rounds (0x0000000c)
@@ -602,9 +549,7 @@ mod tests {
         .unwrap();
 
         // Execute with high gas limit (12 rounds × 2 = 24 gas)
-        let result = precompile
-            .execute(&input, 100)
-            .expect("blake2f should succeed");
+        let result = precompile.execute(&input, 100).expect("blake2f should succeed");
 
         // Verify Monad gas cost is used (rounds × 2)
         let expected_gas = 12 * MONAD_BLAKE2F_ROUND_GAS;
@@ -623,9 +568,7 @@ mod tests {
 
         // Get the P256VERIFY precompile (address 0x0100)
         let p256verify_address = revm::precompile::u64_to_address(0x0100);
-        let precompile = precompiles
-            .get(&p256verify_address)
-            .expect("P256VERIFY should exist");
+        let precompile = precompiles.get(&p256verify_address).expect("P256VERIFY should exist");
 
         // Valid P256 signature verification input (160 bytes):
         // msg hash (32) + r (32) + s (32) + pubkey x (32) + pubkey y (32)
@@ -640,9 +583,7 @@ mod tests {
         .unwrap();
 
         // Execute with high gas limit
-        let result = precompile
-            .execute(&input, 10_000)
-            .expect("P256VERIFY should succeed");
+        let result = precompile.execute(&input, 10_000).expect("P256VERIFY should succeed");
 
         // Verify Ethereum pre-Osaka gas cost is used (3450)
         assert_eq!(

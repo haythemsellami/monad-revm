@@ -37,9 +37,7 @@ pub struct MonadHandler<EVM, ERROR, FRAME> {
 impl<EVM, ERROR, FRAME> MonadHandler<EVM, ERROR, FRAME> {
     /// Create a new Monad handler.
     pub fn new() -> Self {
-        Self {
-            mainnet: MainnetHandler::default(),
-        }
+        Self { mainnet: MainnetHandler::default() }
     }
 }
 
@@ -119,8 +117,7 @@ where
         let reward = coinbase_gas_price * gas_limit as u128;
         let beneficiary = ctx.block().beneficiary();
 
-        ctx.journal_mut()
-            .balance_incr(beneficiary, U256::from(reward))?;
+        ctx.journal_mut().balance_incr(beneficiary, U256::from(reward))?;
 
         Ok(())
     }
@@ -167,9 +164,7 @@ mod tests {
         // Verify that blob transactions are rejected
         assert!(matches!(
             result,
-            Err(EVMError::Transaction(
-                InvalidTransaction::Eip4844NotSupported
-            ))
+            Err(EVMError::Transaction(InvalidTransaction::Eip4844NotSupported))
         ));
     }
 
@@ -212,17 +207,13 @@ mod tests {
         let result = evm.transact(tx).expect("Transaction should succeed");
 
         // Verify coinbase received gas_limit * gas_price, NOT gas_used * gas_price
-        let coinbase_balance = result
-            .state
-            .get(&coinbase)
-            .map(|a| a.info.balance)
-            .unwrap_or_default();
+        let coinbase_balance =
+            result.state.get(&coinbase).map(|a| a.info.balance).unwrap_or_default();
 
         let expected_reward = U256::from(gas_limit as u128 * gas_price);
         assert_eq!(
             coinbase_balance, expected_reward,
-            "Coinbase should receive gas_limit * gas_price = {}, got {}",
-            expected_reward, coinbase_balance
+            "Coinbase should receive gas_limit * gas_price = {expected_reward}, got {coinbase_balance}"
         );
     }
 
@@ -237,10 +228,7 @@ mod tests {
         let mut db = InMemoryDB::default();
         db.insert_account_info(
             caller,
-            revm::state::AccountInfo {
-                balance: initial_balance,
-                ..Default::default()
-            },
+            revm::state::AccountInfo { balance: initial_balance, ..Default::default() },
         );
 
         let ctx = Context::monad().with_db(db);
@@ -260,11 +248,7 @@ mod tests {
 
         // On Monad, caller should NOT be reimbursed for unused gas
         // Final balance = initial - (gas_limit * gas_price) - value_sent
-        let caller_balance = result
-            .state
-            .get(&caller)
-            .map(|a| a.info.balance)
-            .unwrap_or_default();
+        let caller_balance = result.state.get(&caller).map(|a| a.info.balance).unwrap_or_default();
 
         let gas_cost = U256::from(gas_limit as u128 * gas_price);
         let value_sent = U256::from(1000);
@@ -322,11 +306,7 @@ mod tests {
         // Verify refund is 0 (Monad disables refunds)
         match result.result {
             ExecutionResult::Success { gas_refunded, .. } => {
-                assert_eq!(
-                    gas_refunded, 0,
-                    "Refund should be 0 on Monad, got {}",
-                    gas_refunded
-                );
+                assert_eq!(gas_refunded, 0, "Refund should be 0 on Monad, got {gas_refunded}");
             }
             _ => panic!("Expected successful transaction"),
         }

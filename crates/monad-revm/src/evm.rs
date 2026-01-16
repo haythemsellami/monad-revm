@@ -110,12 +110,7 @@ where
     #[inline]
     fn all(
         &self,
-    ) -> (
-        &Self::Context,
-        &Self::Instructions,
-        &Self::Precompiles,
-        &FrameStack<Self::Frame>,
-    ) {
+    ) -> (&Self::Context, &Self::Instructions, &Self::Precompiles, &FrameStack<Self::Frame>) {
         self.0.all()
     }
 

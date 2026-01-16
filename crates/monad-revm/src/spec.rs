@@ -30,7 +30,7 @@ impl MonadSpecId {
     }
 
     /// Checks if the [`MonadSpecId`] is enabled in the other [`MonadSpecId`].
-    pub const fn is_enabled_in(self, other: MonadSpecId) -> bool {
+    pub const fn is_enabled_in(self, other: Self) -> bool {
         other as u8 <= self as u8
     }
 }
@@ -46,7 +46,7 @@ impl FromStr for MonadSpecId {
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s {
-            name::MONAD_EIGHT => Ok(MonadSpecId::MonadEight),
+            name::MONAD_EIGHT => Ok(Self::MonadEight),
             _ => Err(UnknownHardfork),
         }
     }
@@ -82,10 +82,7 @@ mod tests {
 
     #[test]
     fn test_monad_spec_from_str() {
-        assert_eq!(
-            "MonadEight".parse::<MonadSpecId>().unwrap(),
-            MonadSpecId::MonadEight
-        );
+        assert_eq!("MonadEight".parse::<MonadSpecId>().unwrap(), MonadSpecId::MonadEight);
     }
 
     #[test]

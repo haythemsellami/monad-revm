@@ -35,18 +35,12 @@ impl MonadCfgEnv {
     /// Creates a new `MonadCfgEnv` with default Monad spec and Monad gas params.
     pub fn new() -> Self {
         let spec = MonadSpecId::default();
-        Self(CfgEnv::new_with_spec_and_gas_params(
-            spec,
-            monad_gas_params(spec),
-        ))
+        Self(CfgEnv::new_with_spec_and_gas_params(spec, monad_gas_params(spec)))
     }
 
     /// Creates a new `MonadCfgEnv` with the specified spec and Monad gas params.
     pub fn new_with_spec(spec: MonadSpecId) -> Self {
-        Self(CfgEnv::new_with_spec_and_gas_params(
-            spec,
-            monad_gas_params(spec),
-        ))
+        Self(CfgEnv::new_with_spec_and_gas_params(spec, monad_gas_params(spec)))
     }
 
     /// Returns a reference to the inner `CfgEnv`.
@@ -55,7 +49,7 @@ impl MonadCfgEnv {
     }
 
     /// Returns a mutable reference to the inner `CfgEnv`.
-    pub fn inner_mut(&mut self) -> &mut CfgEnv<MonadSpecId> {
+    pub const fn inner_mut(&mut self) -> &mut CfgEnv<MonadSpecId> {
         &mut self.0
     }
 
@@ -65,7 +59,7 @@ impl MonadCfgEnv {
     }
 
     /// Sets the chain ID.
-    pub fn with_chain_id(mut self, chain_id: u64) -> Self {
+    pub const fn with_chain_id(mut self, chain_id: u64) -> Self {
         self.0.chain_id = chain_id;
         self
     }
@@ -141,9 +135,7 @@ impl Cfg for MonadCfgEnv {
     /// Uses [`MONAD_MAX_CODE_SIZE`] as default instead of EIP-170's 24KB.
     /// Can still be overridden via `limit_contract_code_size`.
     fn max_code_size(&self) -> usize {
-        self.0
-            .limit_contract_code_size
-            .unwrap_or(MONAD_MAX_CODE_SIZE)
+        self.0.limit_contract_code_size.unwrap_or(MONAD_MAX_CODE_SIZE)
     }
 
     /// Returns Monad's max initcode size.
@@ -153,11 +145,7 @@ impl Cfg for MonadCfgEnv {
     fn max_initcode_size(&self) -> usize {
         self.0
             .limit_contract_initcode_size
-            .or_else(|| {
-                self.0
-                    .limit_contract_code_size
-                    .map(|size| size.saturating_mul(2))
-            })
+            .or_else(|| self.0.limit_contract_code_size.map(|size| size.saturating_mul(2)))
             .unwrap_or(MONAD_MAX_INITCODE_SIZE)
     }
 

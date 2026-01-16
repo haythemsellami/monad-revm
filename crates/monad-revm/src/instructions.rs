@@ -31,10 +31,7 @@ pub fn monad_gas_params(spec: MonadSpecId) -> GasParams {
             // SSTORE uses full cold storage cost
             (GasId::cold_storage_cost(), COLD_SLOAD_COST),
             // SLOAD uses additional cost (cold - warm)
-            (
-                GasId::cold_storage_additional_cost(),
-                COLD_SLOAD_COST - WARM_STORAGE_READ_COST,
-            ),
+            (GasId::cold_storage_additional_cost(), COLD_SLOAD_COST - WARM_STORAGE_READ_COST),
             // Account access opcodes (BALANCE, EXTCODESIZE, EXTCODECOPY, EXTCODEHASH,
             // CALL, CALLCODE, DELEGATECALL, STATICCALL, SELFDESTRUCT) use additional cost
             (
@@ -102,10 +99,7 @@ mod tests {
     #[test]
     fn test_monad_gas_params_warm_storage_unchanged() {
         let params = monad_gas_params(MonadSpecId::MonadEight);
-        assert_eq!(
-            params.get(GasId::warm_storage_read_cost()),
-            WARM_STORAGE_READ_COST
-        );
+        assert_eq!(params.get(GasId::warm_storage_read_cost()), WARM_STORAGE_READ_COST);
     }
 
     #[test]
