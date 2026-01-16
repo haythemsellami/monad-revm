@@ -8,6 +8,8 @@
 
 /// Configuration module for Monad-specific settings.
 pub mod cfg;
+/// EVM type aliases and builders for Monad.
+pub mod evm;
 /// Monad-specific instruction set with custom gas costs.
 pub mod instructions;
 /// Monad precompiles with custom gas pricing.
@@ -16,4 +18,5 @@ pub mod precompiles;
 pub mod spec;
 
 pub use cfg::{MonadCfgEnv, MONAD_MAX_CODE_SIZE, MONAD_MAX_INITCODE_SIZE};
+pub use evm::MonadEvm;
 pub use spec::*;
