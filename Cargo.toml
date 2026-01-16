@@ -1,0 +1,42 @@
+[package]
+name = "monad-revm"
+description = "Monad variant of Revm"
+version = "0.1.0"
+authors = ["Category Labs"]
+edition = "2024"
+keywords = ["monad", "evm", "revm", "ethereum"]
+license = "MIT"
+repository = "https://github.com/category-labs/monad-revm"
+rust-version = "1.83"
+
+[dependencies]
+# revm
+revm = { version = "34.0.0" }
+auto_impl = "1"
+
+# Optional
+serde = { version = "1", features = ["derive", "rc"], optional = true }
+
+[dev-dependencies]
+rstest = "0.24"
+
+[features]
+default = ["std", "c-kzg", "secp256k1", "portable", "blst", "optional_no_base_fee"]
+std = ["serde?/std", "revm/std"]
+serde = ["dep:serde", "revm/serde"]
+portable = ["revm/portable"]
+c-kzg = ["revm/c-kzg"]
+secp256k1 = ["revm/secp256k1"]
+blst = ["revm/blst"]
+
+# Dev features for testing
+dev = [
+    "memory_limit",
+    "optional_balance_check",
+    "optional_block_gas_limit",
+    "optional_no_base_fee",
+]
+memory_limit = ["revm/memory_limit"]
+optional_balance_check = ["revm/optional_balance_check"]
+optional_block_gas_limit = ["revm/optional_block_gas_limit"]
+optional_no_base_fee = ["revm/optional_no_base_fee"]
