@@ -8,7 +8,7 @@ edition = "2021"
 rust-version = "1.88"
 authors = ["Haythem Sellami - Category Labs <hsellami@category.xyz>"]
 license = "MIT"
-repository = "https://github.com/monad-labs/monad-revm"
+repository = "https://github.com/haythemsellami/monad-revm"
 
 [workspace.lints.rust]
 missing-debug-implementations = "warn"
