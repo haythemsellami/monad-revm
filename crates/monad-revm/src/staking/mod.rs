@@ -442,6 +442,349 @@ fn read_storage_u64<CTX: ContextTr>(context: &mut CTX, key: U256) -> Result<u64,
     Ok(value.as_limbs()[0])
 }
 
+// ═══════════════════════════════════════════════════════════════════════════════
+// Storage Reader Trait (for Foundry/Anvil PrecompileInput integration)
+// ═══════════════════════════════════════════════════════════════════════════════
+
+/// Storage reader trait for abstracting storage access.
+///
+/// This allows the staking precompile to work with different execution environments,
+/// such as Foundry's `PrecompileInput` interface which uses `EvmInternals.sload()`.
+pub trait StorageReader {
+    /// Read a U256 value from storage at the given key.
+    fn sload(&mut self, key: U256) -> Result<U256, PrecompileError>;
+}
+
+/// Run the staking precompile with a custom storage reader.
+///
+/// This function is designed for integration with execution environments that don't
+/// use `ContextTr`, such as Foundry's `PrecompileInput` interface.
+///
+/// # Arguments
+/// * `input` - Raw input bytes (including selector)
+/// * `gas_limit` - Maximum gas available
+/// * `reader` - Storage reader implementation
+///
+/// # Returns
+/// * `Ok(InterpreterResult)` - Execution result with gas used and output
+/// * `Err(String)` - Error message if execution failed
+pub fn run_staking_with_reader<R: StorageReader>(
+    input: &[u8],
+    gas_limit: u64,
+    reader: &mut R,
+) -> Result<InterpreterResult, String> {
+    // Decode selector
+    let selector = abi::decode_selector(input).ok_or("Invalid input: missing selector")?;
+
+    // Dispatch to appropriate handler
+    let result = match selector {
+        selectors::GET_EPOCH => handle_get_epoch_reader(reader, input, gas_limit),
+        selectors::GET_PROPOSER_VAL_ID => handle_get_proposer_val_id_reader(reader, gas_limit),
+        selectors::GET_VALIDATOR => handle_get_validator_reader(reader, input, gas_limit),
+        selectors::GET_DELEGATOR => handle_get_delegator_reader(reader, input, gas_limit),
+        selectors::GET_WITHDRAWAL_REQUEST => {
+            handle_get_withdrawal_request_reader(reader, input, gas_limit)
+        }
+        _ => Err(PrecompileError::Other(
+            format!("Unknown selector: {selector:#x}").into(),
+        )),
+    };
+
+    // Convert result to InterpreterResult
+    match result {
+        Ok((gas_used, output)) => {
+            let mut interpreter_result = InterpreterResult {
+                result: InstructionResult::Return,
+                gas: Gas::new(gas_limit),
+                output,
+            };
+            if !interpreter_result.gas.record_cost(gas_used) {
+                interpreter_result.result = InstructionResult::PrecompileOOG;
+            }
+            Ok(interpreter_result)
+        }
+        Err(e) => Ok(InterpreterResult {
+            result: if e.is_oog() {
+                InstructionResult::PrecompileOOG
+            } else {
+                InstructionResult::PrecompileError
+            },
+            gas: Gas::new(gas_limit),
+            output: Bytes::new(),
+        }),
+    }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// Reader-based handlers
+// ═══════════════════════════════════════════════════════════════════════════════
+
+fn handle_get_epoch_reader<R: StorageReader>(
+    reader: &mut R,
+    _input: &[u8],
+    gas_limit: u64,
+) -> Result<(u64, Bytes), PrecompileError> {
+    if gas_limit < abi::gas::GET_EPOCH {
+        return Err(PrecompileError::OutOfGas);
+    }
+    let epoch_info = read_epoch_info_reader(reader)?;
+    Ok((
+        abi::gas::GET_EPOCH,
+        abi::encode_get_epoch_result(epoch_info.epoch, epoch_info.in_delay_period),
+    ))
+}
+
+fn handle_get_proposer_val_id_reader<R: StorageReader>(
+    reader: &mut R,
+    gas_limit: u64,
+) -> Result<(u64, Bytes), PrecompileError> {
+    if gas_limit < abi::gas::GET_PROPOSER_VAL_ID {
+        return Err(PrecompileError::OutOfGas);
+    }
+    let val_id = read_storage_u64_reader(reader, global_slots::PROPOSER_VAL_ID)?;
+    Ok((
+        abi::gas::GET_PROPOSER_VAL_ID,
+        abi::encode_get_proposer_val_id_result(val_id),
+    ))
+}
+
+fn handle_get_validator_reader<R: StorageReader>(
+    reader: &mut R,
+    input: &[u8],
+    gas_limit: u64,
+) -> Result<(u64, Bytes), PrecompileError> {
+    if gas_limit < abi::gas::GET_VALIDATOR {
+        return Err(PrecompileError::OutOfGas);
+    }
+    let val_id =
+        abi::decode_u64(input, 4).ok_or_else(|| PrecompileError::Other("Invalid val_id".into()))?;
+    let validator = read_validator_reader(reader, val_id)?;
+
+    // Read consensus and snapshot stakes
+    let consensus_stake = read_storage_u256_reader(reader, storage::consensus_view_key(val_id, 0))?;
+    let snapshot_stake = read_storage_u256_reader(reader, storage::snapshot_view_key(val_id, 0))?;
+
+    Ok((
+        abi::gas::GET_VALIDATOR,
+        abi::encode_get_validator_result(
+            &validator.auth_address,
+            validator.flags,
+            validator.stake,
+            validator.accumulated_reward_per_token,
+            validator.commission,
+            validator.unclaimed_rewards,
+            consensus_stake,
+            snapshot_stake,
+            &validator.secp_pubkey,
+            &validator.bls_pubkey,
+        ),
+    ))
+}
+
+fn handle_get_delegator_reader<R: StorageReader>(
+    reader: &mut R,
+    input: &[u8],
+    gas_limit: u64,
+) -> Result<(u64, Bytes), PrecompileError> {
+    if gas_limit < abi::gas::GET_DELEGATOR {
+        return Err(PrecompileError::OutOfGas);
+    }
+    let val_id =
+        abi::decode_u64(input, 4).ok_or_else(|| PrecompileError::Other("Invalid val_id".into()))?;
+    let delegator_addr = abi::decode_address(input, 36)
+        .ok_or_else(|| PrecompileError::Other("Invalid delegator address".into()))?;
+    let delegator = read_delegator_reader(reader, val_id, &delegator_addr)?;
+    Ok((
+        abi::gas::GET_DELEGATOR,
+        abi::encode_get_delegator_result(
+            delegator.stake,
+            delegator.accumulated_reward_per_token,
+            delegator.rewards,
+            delegator.delta_stake,
+            delegator.next_delta_stake,
+            delegator.delta_epoch,
+            delegator.next_delta_epoch,
+        ),
+    ))
+}
+
+fn handle_get_withdrawal_request_reader<R: StorageReader>(
+    reader: &mut R,
+    input: &[u8],
+    gas_limit: u64,
+) -> Result<(u64, Bytes), PrecompileError> {
+    if gas_limit < abi::gas::GET_WITHDRAWAL_REQUEST {
+        return Err(PrecompileError::OutOfGas);
+    }
+    let val_id =
+        abi::decode_u64(input, 4).ok_or_else(|| PrecompileError::Other("Invalid val_id".into()))?;
+    let delegator_addr = abi::decode_address(input, 36)
+        .ok_or_else(|| PrecompileError::Other("Invalid delegator address".into()))?;
+    let withdrawal_id = abi::decode_u8(input, 68)
+        .ok_or_else(|| PrecompileError::Other("Invalid withdrawal_id".into()))?;
+    let withdrawal =
+        read_withdrawal_request_reader(reader, val_id, &delegator_addr, withdrawal_id)?;
+    Ok((
+        abi::gas::GET_WITHDRAWAL_REQUEST,
+        abi::encode_get_withdrawal_request_result(withdrawal.amount, withdrawal.accumulator, withdrawal.epoch),
+    ))
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// Reader-based storage functions
+// ═══════════════════════════════════════════════════════════════════════════════
+
+fn read_epoch_info_reader<R: StorageReader>(reader: &mut R) -> Result<EpochInfo, PrecompileError> {
+    let epoch = read_storage_u64_reader(reader, global_slots::EPOCH)?;
+    let in_delay_raw = read_storage_u256_reader(reader, global_slots::IN_BOUNDARY)?;
+    let in_delay_period = in_delay_raw != U256::ZERO;
+    Ok(EpochInfo { epoch, in_delay_period })
+}
+
+fn read_validator_reader<R: StorageReader>(
+    reader: &mut R,
+    val_id: u64,
+) -> Result<Validator, PrecompileError> {
+    let stake = read_storage_u256_reader(reader, validator_key(val_id, validator_offsets::STAKE))?;
+    let accumulated_reward_per_token = read_storage_u256_reader(
+        reader,
+        validator_key(val_id, validator_offsets::ACCUMULATED_REWARD_PER_TOKEN),
+    )?;
+    let commission =
+        read_storage_u256_reader(reader, validator_key(val_id, validator_offsets::COMMISSION))?;
+
+    let keys_slot_0 =
+        read_storage_u256_reader(reader, validator_key(val_id, validator_offsets::KEYS))?
+            .to_be_bytes::<32>();
+    let keys_slot_1 =
+        read_storage_u256_reader(reader, validator_key(val_id, validator_offsets::KEYS + 1))?
+            .to_be_bytes::<32>();
+    let keys_slot_2 =
+        read_storage_u256_reader(reader, validator_key(val_id, validator_offsets::KEYS + 2))?
+            .to_be_bytes::<32>();
+
+    let mut keys_concat = [0u8; 96];
+    keys_concat[0..32].copy_from_slice(&keys_slot_0);
+    keys_concat[32..64].copy_from_slice(&keys_slot_1);
+    keys_concat[64..96].copy_from_slice(&keys_slot_2);
+
+    let mut secp_pubkey = [0u8; 33];
+    let mut bls_pubkey = [0u8; 48];
+    secp_pubkey.copy_from_slice(&keys_concat[0..33]);
+    bls_pubkey.copy_from_slice(&keys_concat[33..81]);
+
+    let address_flags_raw =
+        read_storage_u256_reader(reader, validator_key(val_id, validator_offsets::ADDRESS_FLAGS))?
+            .to_be_bytes::<32>();
+    let auth_address = Address::from_slice(&address_flags_raw[0..20]);
+    let flags = u64::from_be_bytes(address_flags_raw[20..28].try_into().unwrap());
+
+    let unclaimed_rewards = read_storage_u256_reader(
+        reader,
+        validator_key(val_id, validator_offsets::UNCLAIMED_REWARDS),
+    )?;
+
+    Ok(Validator {
+        stake,
+        accumulated_reward_per_token,
+        commission,
+        secp_pubkey,
+        bls_pubkey,
+        auth_address,
+        flags,
+        unclaimed_rewards,
+    })
+}
+
+fn read_delegator_reader<R: StorageReader>(
+    reader: &mut R,
+    val_id: u64,
+    delegator_addr: &Address,
+) -> Result<Delegator, PrecompileError> {
+    let stake = read_storage_u256_reader(
+        reader,
+        delegator_key(val_id, delegator_addr, delegator_offsets::STAKE),
+    )?;
+    let accumulated_reward_per_token = read_storage_u256_reader(
+        reader,
+        delegator_key(val_id, delegator_addr, delegator_offsets::ACCUMULATED_REWARD_PER_TOKEN),
+    )?;
+    let rewards = read_storage_u256_reader(
+        reader,
+        delegator_key(val_id, delegator_addr, delegator_offsets::REWARDS),
+    )?;
+    let delta_stake = read_storage_u256_reader(
+        reader,
+        delegator_key(val_id, delegator_addr, delegator_offsets::DELTA_STAKE),
+    )?;
+    let next_delta_stake = read_storage_u256_reader(
+        reader,
+        delegator_key(val_id, delegator_addr, delegator_offsets::NEXT_DELTA_STAKE),
+    )?;
+
+    let epochs_raw = read_storage_u256_reader(
+        reader,
+        delegator_key(val_id, delegator_addr, delegator_offsets::EPOCHS),
+    )?
+    .to_be_bytes::<32>();
+    let delta_epoch = u64::from_be_bytes(epochs_raw[0..8].try_into().unwrap());
+    let next_delta_epoch = u64::from_be_bytes(epochs_raw[8..16].try_into().unwrap());
+
+    Ok(Delegator {
+        stake,
+        accumulated_reward_per_token,
+        rewards,
+        delta_stake,
+        next_delta_stake,
+        delta_epoch,
+        next_delta_epoch,
+    })
+}
+
+fn read_withdrawal_request_reader<R: StorageReader>(
+    reader: &mut R,
+    val_id: u64,
+    delegator_addr: &Address,
+    withdrawal_id: u8,
+) -> Result<WithdrawalRequest, PrecompileError> {
+    let amount = read_storage_u256_reader(
+        reader,
+        withdrawal_key(val_id, delegator_addr, withdrawal_id, withdrawal_offsets::AMOUNT),
+    )?;
+    let accumulator = read_storage_u256_reader(
+        reader,
+        withdrawal_key(val_id, delegator_addr, withdrawal_id, withdrawal_offsets::ACCUMULATOR),
+    )?;
+
+    let epoch_raw = read_storage_u256_reader(
+        reader,
+        withdrawal_key(val_id, delegator_addr, withdrawal_id, withdrawal_offsets::EPOCH),
+    )?
+    .to_be_bytes::<32>();
+    let epoch = u64::from_be_bytes(epoch_raw[0..8].try_into().unwrap());
+
+    Ok(WithdrawalRequest {
+        amount,
+        accumulator,
+        epoch,
+    })
+}
+
+fn read_storage_u256_reader<R: StorageReader>(
+    reader: &mut R,
+    key: U256,
+) -> Result<U256, PrecompileError> {
+    reader.sload(key)
+}
+
+fn read_storage_u64_reader<R: StorageReader>(
+    reader: &mut R,
+    key: U256,
+) -> Result<u64, PrecompileError> {
+    let value = read_storage_u256_reader(reader, key)?;
+    Ok(value.as_limbs()[0])
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
