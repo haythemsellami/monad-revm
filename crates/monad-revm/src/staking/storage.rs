@@ -93,60 +93,65 @@ pub mod withdrawal_offsets {
 
 /// Generate storage key for validator execution data.
 ///
-/// Key format: [namespace(1)][val_id(8)][slot(1)][padding(22)]
+/// Base key format: [namespace(1)][val_id(8)][padding(23)]
+/// Slot is added numerically to the base key (goes to least significant position).
 pub fn validator_key(val_id: u64, slot: u8) -> U256 {
     let mut key = [0u8; 32];
     key[0] = namespace::VAL_EXECUTION;
     key[1..9].copy_from_slice(&val_id.to_be_bytes());
-    key[9] = slot;
-    U256::from_be_bytes(key)
+    // slot is added as offset to the uint256 value (at the end)
+    U256::from_be_bytes(key) + U256::from(slot)
 }
 
 /// Generate storage key for delegator data.
 ///
-/// Key format: [namespace(1)][val_id(8)][address(20)][slot(1)][padding(2)]
+/// Base key format: [namespace(1)][val_id(8)][address(20)][padding(3)]
+/// Slot is added numerically to the base key.
 pub fn delegator_key(val_id: u64, delegator: &Address, slot: u8) -> U256 {
     let mut key = [0u8; 32];
     key[0] = namespace::DELEGATOR;
     key[1..9].copy_from_slice(&val_id.to_be_bytes());
     key[9..29].copy_from_slice(delegator.as_slice());
-    key[29] = slot;
-    U256::from_be_bytes(key)
+    // slot is added as offset to the uint256 value
+    U256::from_be_bytes(key) + U256::from(slot)
 }
 
 /// Generate storage key for withdrawal request.
 ///
-/// Key format: [namespace(1)][val_id(8)][address(20)][withdrawal_id(1)][slot(1)][padding(1)]
+/// Base key format: [namespace(1)][val_id(8)][address(20)][withdrawal_id(1)][padding(2)]
+/// Slot is added numerically to the base key.
 pub fn withdrawal_key(val_id: u64, delegator: &Address, withdrawal_id: u8, slot: u8) -> U256 {
     let mut key = [0u8; 32];
     key[0] = namespace::WITHDRAWAL_REQUEST;
     key[1..9].copy_from_slice(&val_id.to_be_bytes());
     key[9..29].copy_from_slice(delegator.as_slice());
     key[29] = withdrawal_id;
-    key[30] = slot;
-    U256::from_be_bytes(key)
+    // slot is added as offset to the uint256 value
+    U256::from_be_bytes(key) + U256::from(slot)
 }
 
 /// Generate storage key for consensus view (stake/commission snapshot).
 ///
-/// Key format: [namespace(1)][val_id(8)][slot(1)][padding(22)]
+/// Base key format: [namespace(1)][val_id(8)][padding(23)]
+/// Slot is added numerically to the base key.
 pub fn consensus_view_key(val_id: u64, slot: u8) -> U256 {
     let mut key = [0u8; 32];
     key[0] = namespace::CONSENSUS_STAKE;
     key[1..9].copy_from_slice(&val_id.to_be_bytes());
-    key[9] = slot;
-    U256::from_be_bytes(key)
+    // slot is added as offset to the uint256 value
+    U256::from_be_bytes(key) + U256::from(slot)
 }
 
 /// Generate storage key for snapshot view.
 ///
-/// Key format: [namespace(1)][val_id(8)][slot(1)][padding(22)]
+/// Base key format: [namespace(1)][val_id(8)][padding(23)]
+/// Slot is added numerically to the base key.
 pub fn snapshot_view_key(val_id: u64, slot: u8) -> U256 {
     let mut key = [0u8; 32];
     key[0] = namespace::SNAPSHOT_STAKE;
     key[1..9].copy_from_slice(&val_id.to_be_bytes());
-    key[9] = slot;
-    U256::from_be_bytes(key)
+    // slot is added as offset to the uint256 value
+    U256::from_be_bytes(key) + U256::from(slot)
 }
 
 #[cfg(test)]
@@ -164,6 +169,7 @@ mod tests {
 
     #[test]
     fn test_validator_key_format() {
+        // With slot 0, key should be just base key
         let key = validator_key(1, 0);
         let bytes = key.to_be_bytes::<32>();
 
@@ -171,8 +177,13 @@ mod tests {
         assert_eq!(bytes[0], namespace::VAL_EXECUTION);
         // Check val_id
         assert_eq!(&bytes[1..9], &1u64.to_be_bytes());
-        // Check slot
-        assert_eq!(bytes[9], 0);
+        // Check slot 0 means all trailing bytes are zero
+        assert_eq!(&bytes[9..32], &[0u8; 23]);
+
+        // With slot 6, it should be added to the least significant position
+        let key_slot6 = validator_key(1, 6);
+        let bytes6 = key_slot6.to_be_bytes::<32>();
+        assert_eq!(bytes6[31], 6); // slot at the end
     }
 
     #[test]
@@ -187,8 +198,8 @@ mod tests {
         assert_eq!(&bytes[1..9], &42u64.to_be_bytes());
         // Check delegator address
         assert_eq!(&bytes[9..29], delegator.as_slice());
-        // Check slot
-        assert_eq!(bytes[29], 2);
+        // Check slot at the end (least significant position)
+        assert_eq!(bytes[31], 2);
     }
 
     #[test]
@@ -205,7 +216,7 @@ mod tests {
         assert_eq!(&bytes[9..29], delegator.as_slice());
         // Check withdrawal_id
         assert_eq!(bytes[29], 5);
-        // Check slot
-        assert_eq!(bytes[30], 1);
+        // Check slot at the end (least significant position)
+        assert_eq!(bytes[31], 1);
     }
 }
