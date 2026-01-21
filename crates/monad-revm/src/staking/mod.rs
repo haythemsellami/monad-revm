@@ -435,11 +435,12 @@ fn read_storage_u256<CTX: ContextTr>(context: &mut CTX, key: U256) -> Result<U25
         .map_err(|e| PrecompileError::Other(format!("Storage read failed: {e:?}").into()))
 }
 
-/// Read a u64 from storage (stored as U256, take lower 64 bits).
+/// Read a u64 from storage (stored left-aligned in big-endian format).
 fn read_storage_u64<CTX: ContextTr>(context: &mut CTX, key: U256) -> Result<u64, PrecompileError> {
     let value = read_storage_u256(context, key)?;
-    // For simple u64 values stored as U256, take lower 64 bits
-    Ok(value.as_limbs()[0])
+    // Monad stores u64 values left-aligned (big-endian in first 8 bytes of slot)
+    let bytes = value.to_be_bytes::<32>();
+    Ok(u64::from_be_bytes(bytes[0..8].try_into().unwrap()))
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -782,7 +783,9 @@ fn read_storage_u64_reader<R: StorageReader>(
     key: U256,
 ) -> Result<u64, PrecompileError> {
     let value = read_storage_u256_reader(reader, key)?;
-    Ok(value.as_limbs()[0])
+    // Monad stores u64 values left-aligned (big-endian in first 8 bytes of slot)
+    let bytes = value.to_be_bytes::<32>();
+    Ok(u64::from_be_bytes(bytes[0..8].try_into().unwrap()))
 }
 
 #[cfg(test)]
