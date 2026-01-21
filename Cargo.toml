@@ -31,7 +31,7 @@ revm = { version = "34.0.0", default-features = false }
 auto_impl = "1"
 
 # alloy-evm (for PrecompilesMap integration with foundry/anvil)
-alloy-evm = { git = "https://github.com/haythemsellami/evm", branch = "main", default-features = false }
+alloy-evm = { git = "https://github.com/haythemsellami/evm", branch = "fix/monad-precompiles-factory", default-features = false }
 
 # misc
 serde = { version = "1", default-features = false, features = ["derive", "rc"] }
