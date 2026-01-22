@@ -550,6 +550,15 @@ pub fn run_staking_with_reader<R: StorageReader>(
         selectors::GET_WITHDRAWAL_REQUEST => {
             handle_get_withdrawal_request_reader(reader, input, gas_limit)
         }
+        selectors::GET_CONSENSUS_VALIDATOR_SET => {
+            handle_get_validator_set_reader(reader, input, gas_limit, valset_slots::CONSENSUS)
+        }
+        selectors::GET_SNAPSHOT_VALIDATOR_SET => {
+            handle_get_validator_set_reader(reader, input, gas_limit, valset_slots::SNAPSHOT)
+        }
+        selectors::GET_EXECUTION_VALIDATOR_SET => {
+            handle_get_validator_set_reader(reader, input, gas_limit, valset_slots::EXECUTION)
+        }
         _ => Err(PrecompileError::Other(
             format!("Unknown selector: {selector:#x}").into(),
         )),
@@ -692,6 +701,55 @@ fn handle_get_withdrawal_request_reader<R: StorageReader>(
     Ok((
         abi::gas::GET_WITHDRAWAL_REQUEST,
         abi::encode_get_withdrawal_request_result(withdrawal.amount, withdrawal.accumulator, withdrawal.epoch),
+    ))
+}
+
+/// Handler for validator set functions using StorageReader.
+fn handle_get_validator_set_reader<R: StorageReader>(
+    reader: &mut R,
+    input: &[u8],
+    gas_limit: u64,
+    base_slot: U256,
+) -> Result<(u64, Bytes), PrecompileError> {
+    // Base gas check
+    if gas_limit < abi::gas::GET_CONSENSUS_VALIDATOR_SET_BASE {
+        return Err(PrecompileError::OutOfGas);
+    }
+
+    // Decode start_index from input (after 4-byte selector)
+    let start_index = abi::decode_u32(input, 4)
+        .ok_or_else(|| PrecompileError::Other("Invalid start_index".into()))?;
+
+    // Read array length from base slot
+    let length = read_storage_u64_reader(reader, base_slot)?;
+
+    // Calculate how many elements to read
+    let start = start_index as u64;
+    let remaining = if start >= length { 0 } else { length - start };
+    let count = remaining.min(MAX_VALIDATORS_PER_CALL as u64) as u32;
+
+    // Calculate gas cost
+    let gas_cost = abi::gas::GET_CONSENSUS_VALIDATOR_SET_BASE
+        + (count as u64) * abi::gas::VALIDATOR_SET_PER_ELEMENT;
+    if gas_limit < gas_cost {
+        return Err(PrecompileError::OutOfGas);
+    }
+
+    // Read validator IDs
+    let mut val_ids = Vec::with_capacity(count as usize);
+    for i in 0..count {
+        let slot = base_slot + U256::from(1 + start_index + i);
+        let val_id = read_storage_u64_reader(reader, slot)?;
+        val_ids.push(val_id);
+    }
+
+    // Determine if we're done
+    let next_index = start_index + count;
+    let is_done = (next_index as u64) >= length;
+
+    Ok((
+        gas_cost,
+        abi::encode_get_validator_set_result(is_done, next_index, &val_ids),
     ))
 }
 
