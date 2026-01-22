@@ -67,6 +67,14 @@ pub mod gas {
     pub const GET_DELEGATOR: u64 = 184_900;
     /// getWithdrawalRequest view
     pub const GET_WITHDRAWAL_REQUEST: u64 = 24_300;
+    /// getConsensusValidatorSet view (base cost + per element)
+    pub const GET_CONSENSUS_VALIDATOR_SET_BASE: u64 = 2_100;
+    /// getSnapshotValidatorSet view (base cost + per element)
+    pub const GET_SNAPSHOT_VALIDATOR_SET_BASE: u64 = 2_100;
+    /// getExecutionValidatorSet view (base cost + per element)
+    pub const GET_EXECUTION_VALIDATOR_SET_BASE: u64 = 2_100;
+    /// Per-element gas cost for validator set reads
+    pub const VALIDATOR_SET_PER_ELEMENT: u64 = 2_100;
 }
 
 /// Decode function selector from input.
@@ -105,6 +113,20 @@ pub fn decode_u8(input: &[u8], offset: usize) -> Option<u8> {
     Some(bytes[31])
 }
 
+/// Decode a uint32 from ABI-encoded input at given offset.
+pub fn decode_u32(input: &[u8], offset: usize) -> Option<u32> {
+    if input.len() < offset + 32 {
+        return None;
+    }
+    // ABI encodes uint32 as 32 bytes, right-aligned
+    let bytes = &input[offset..offset + 32];
+    // Check high bytes are zero
+    if bytes[..28] != [0u8; 28] {
+        return None;
+    }
+    Some(u32::from_be_bytes(bytes[28..32].try_into().ok()?))
+}
+
 /// Decode an address from ABI-encoded input at given offset.
 pub fn decode_address(input: &[u8], offset: usize) -> Option<Address> {
     if input.len() < offset + 32 {
@@ -123,6 +145,13 @@ pub fn decode_address(input: &[u8], offset: usize) -> Option<Address> {
 pub fn encode_bool(value: bool) -> [u8; 32] {
     let mut result = [0u8; 32];
     result[31] = if value { 1 } else { 0 };
+    result
+}
+
+/// Encode a uint32 to ABI format (32 bytes).
+pub fn encode_u32(value: u32) -> [u8; 32] {
+    let mut result = [0u8; 32];
+    result[28..32].copy_from_slice(&value.to_be_bytes());
     result
 }
 
@@ -245,6 +274,37 @@ pub fn encode_get_withdrawal_request_result(amount: U256, accumulator: U256, epo
     result.extend_from_slice(&encode_u256(amount));
     result.extend_from_slice(&encode_u256(accumulator));
     result.extend_from_slice(&encode_u64(epoch));
+    result.into()
+}
+
+/// Build ABI-encoded output for getConsensusValidatorSet/getSnapshotValidatorSet/getExecutionValidatorSet.
+///
+/// Returns: (bool isDone, uint32 nextIndex, uint64[] valIds)
+pub fn encode_get_validator_set_result(is_done: bool, next_index: u32, val_ids: &[u64]) -> Bytes {
+    // Layout:
+    // - 32 bytes: bool isDone
+    // - 32 bytes: uint32 nextIndex
+    // - 32 bytes: offset to dynamic array (always 96 = 3 * 32)
+    // - 32 bytes: array length
+    // - N * 32 bytes: array elements (each uint64 is 32 bytes)
+    let array_data_size = 32 + val_ids.len() * 32; // length + elements
+    let mut result = Vec::with_capacity(96 + array_data_size);
+
+    // Fixed fields
+    result.extend_from_slice(&encode_bool(is_done));
+    result.extend_from_slice(&encode_u32(next_index));
+
+    // Offset to dynamic array (starts at byte 96)
+    result.extend_from_slice(&encode_u256(U256::from(96)));
+
+    // Array length
+    result.extend_from_slice(&encode_u256(U256::from(val_ids.len())));
+
+    // Array elements
+    for &val_id in val_ids {
+        result.extend_from_slice(&encode_u64(val_id));
+    }
+
     result.into()
 }
 

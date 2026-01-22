@@ -12,37 +12,9 @@
 //! | getValidator | 0x2b6d639a | 97,200 |
 //! | getDelegator | 0x573c1ce0 | 184,900 |
 //! | getWithdrawalRequest | 0x56fa2045 | 24,300 |
-//!
-//! ## Foundry Integration
-//!
-//! For integration with Foundry/alloy-evm's `PrecompilesMap`, you have two options:
-//!
-//! ### Option 1: Use MonadPrecompiles directly (Recommended)
-//!
-//! If you're using `MonadPrecompiles` as your precompile provider, the staking
-//! precompile is automatically integrated via the `run()` method.
-//!
-//! ### Option 2: Add to PrecompilesMap manually
-//!
-//! If you need to add the staking precompile to an existing `PrecompilesMap`,
-//! create a `DynPrecompile` that wraps the staking logic:
-//!
-//! ```ignore
-//! use alloy_evm::precompiles::{DynPrecompile, PrecompileInput, PrecompileId};
-//! use monad_revm::staking::{self, storage::STAKING_ADDRESS};
-//!
-//! // Create a DynPrecompile for staking
-//! let staking_precompile = DynPrecompile::new_stateful(
-//!     PrecompileId::Custom("MonadStaking".into()),
-//!     |input: PrecompileInput<'_>| {
-//!         // Use input.internals().sload() for storage access
-//!         // Dispatch based on selector in input.data
-//!         // ... implementation using staking::abi and staking::storage
-//!     }
-//! );
-//!
-//! precompiles.extend_precompiles([(STAKING_ADDRESS, staking_precompile)]);
-//! ```
+//! | getConsensusValidatorSet | 0xfb29b729 | 2,100 + 2,100/elem |
+//! | getSnapshotValidatorSet | 0xde66a368 | 2,100 + 2,100/elem |
+//! | getExecutionValidatorSet | 0x7cb074df | 2,100 + 2,100/elem |
 
 pub mod abi;
 pub mod storage;
@@ -61,7 +33,7 @@ use revm::{
 };
 use storage::{
     delegator_key, delegator_offsets, global_slots, validator_key, validator_offsets,
-    withdrawal_key, withdrawal_offsets,
+    valset_slots, withdrawal_key, withdrawal_offsets,
 };
 
 /// Run the staking precompile.
@@ -100,6 +72,15 @@ pub fn run_staking_precompile<CTX: ContextTr>(
         selectors::GET_DELEGATOR => handle_get_delegator(context, &input_bytes, inputs.gas_limit),
         selectors::GET_WITHDRAWAL_REQUEST => {
             handle_get_withdrawal_request(context, &input_bytes, inputs.gas_limit)
+        }
+        selectors::GET_CONSENSUS_VALIDATOR_SET => {
+            handle_get_consensus_validator_set(context, &input_bytes, inputs.gas_limit)
+        }
+        selectors::GET_SNAPSHOT_VALIDATOR_SET => {
+            handle_get_snapshot_validator_set(context, &input_bytes, inputs.gas_limit)
+        }
+        selectors::GET_EXECUTION_VALIDATOR_SET => {
+            handle_get_execution_validator_set(context, &input_bytes, inputs.gas_limit)
         }
         _ => Err(PrecompileError::Other(
             format!("Unknown selector: {selector:#x}").into(),
@@ -259,6 +240,89 @@ fn handle_get_withdrawal_request<CTX: ContextTr>(
     Ok((
         abi::gas::GET_WITHDRAWAL_REQUEST,
         abi::encode_get_withdrawal_request_result(request.amount, request.accumulator, request.epoch),
+    ))
+}
+
+/// Maximum number of validators to return per call (pagination limit).
+const MAX_VALIDATORS_PER_CALL: u32 = 100;
+
+/// Handle getConsensusValidatorSet(uint32 startIndex) => (bool isDone, uint32 nextIndex, uint64[] valIds)
+fn handle_get_consensus_validator_set<CTX: ContextTr>(
+    context: &mut CTX,
+    input: &[u8],
+    gas_limit: u64,
+) -> Result<(u64, Bytes), PrecompileError> {
+    handle_get_validator_set_impl(context, input, gas_limit, valset_slots::CONSENSUS)
+}
+
+/// Handle getSnapshotValidatorSet(uint32 startIndex) => (bool isDone, uint32 nextIndex, uint64[] valIds)
+fn handle_get_snapshot_validator_set<CTX: ContextTr>(
+    context: &mut CTX,
+    input: &[u8],
+    gas_limit: u64,
+) -> Result<(u64, Bytes), PrecompileError> {
+    handle_get_validator_set_impl(context, input, gas_limit, valset_slots::SNAPSHOT)
+}
+
+/// Handle getExecutionValidatorSet(uint32 startIndex) => (bool isDone, uint32 nextIndex, uint64[] valIds)
+fn handle_get_execution_validator_set<CTX: ContextTr>(
+    context: &mut CTX,
+    input: &[u8],
+    gas_limit: u64,
+) -> Result<(u64, Bytes), PrecompileError> {
+    handle_get_validator_set_impl(context, input, gas_limit, valset_slots::EXECUTION)
+}
+
+/// Common implementation for all validator set handlers.
+///
+/// StorageArray layout:
+/// - Base slot: length (u64, left-aligned)
+/// - Base slot + 1 + i: element[i] (u64, left-aligned)
+fn handle_get_validator_set_impl<CTX: ContextTr>(
+    context: &mut CTX,
+    input: &[u8],
+    gas_limit: u64,
+    base_slot: U256,
+) -> Result<(u64, Bytes), PrecompileError> {
+    // Base gas check
+    if gas_limit < abi::gas::GET_CONSENSUS_VALIDATOR_SET_BASE {
+        return Err(PrecompileError::OutOfGas);
+    }
+
+    // Decode start_index from input (after 4-byte selector)
+    let start_index = abi::decode_u32(input, 4)
+        .ok_or_else(|| PrecompileError::Other("Invalid start_index".into()))?;
+
+    // Read array length from base slot
+    let length = read_storage_u64(context, base_slot)?;
+
+    // Calculate how many elements to read
+    let start = start_index as u64;
+    let remaining = if start >= length { 0 } else { length - start };
+    let count = remaining.min(MAX_VALIDATORS_PER_CALL as u64) as u32;
+
+    // Calculate gas cost
+    let gas_cost = abi::gas::GET_CONSENSUS_VALIDATOR_SET_BASE
+        + (count as u64) * abi::gas::VALIDATOR_SET_PER_ELEMENT;
+    if gas_limit < gas_cost {
+        return Err(PrecompileError::OutOfGas);
+    }
+
+    // Read validator IDs
+    let mut val_ids = Vec::with_capacity(count as usize);
+    for i in 0..count {
+        let slot = base_slot + U256::from(1 + start_index + i);
+        let val_id = read_storage_u64(context, slot)?;
+        val_ids.push(val_id);
+    }
+
+    // Determine if we're done
+    let next_index = start_index + count;
+    let is_done = (next_index as u64) >= length;
+
+    Ok((
+        gas_cost,
+        abi::encode_get_validator_set_result(is_done, next_index, &val_ids),
     ))
 }
 
