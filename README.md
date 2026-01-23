@@ -1,5 +1,7 @@
 # Monad REVM
 
+# This repository is not maintained anymore, see https://github.com/category-labs/monad-revm.
+
 ![Monad REVM Banner](monad-revm-banner.png)
 
 Monad-revm extends the [Revm](https://github.com/bluealloy/revm) Ethereum Virtual Machine with Monad-specific customizations and optimizations.
